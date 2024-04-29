@@ -10,7 +10,7 @@ from skimage.transform import resize
 st.set_page_config(page_title="DermAI", page_icon="imgs/Ico.png")
 
 with st.sidebar:
-    #logo = st.image("imgs/Logo-Sidebar.png")
+    logo = st.image("imgs/Logo-Sidebar.png")
     pagSelecionada = st.selectbox("Menu", ["Home", "DermAI", "About", "Contact"], help="Clique para selecionar a página")
 
 
