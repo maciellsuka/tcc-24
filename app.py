@@ -10,11 +10,11 @@ from skimage.transform import resize
 st.set_page_config(page_title="DermAI", page_icon="imgs/Ico.png")
 
 with st.sidebar:
-    logo = st.image("imgs/Logo-Sidebar.png")
-    pagSelecionada = st.selectbox("Menu", ["Index", "DermAI", "About", "Contact"])
+    #logo = st.image("imgs/Logo-Sidebar.png")
+    pagSelecionada = st.selectbox("Menu", ["Home", "DermAI", "About", "Contact"], help="Clique para selecionar a página")
 
 
-if pagSelecionada == "Index":
+if pagSelecionada == "Home":
     st.title("Seja bem-vindo!")
     st.markdown("<h3>DermAI, facilitando o seu diagnóstico!</h3>", unsafe_allow_html=True)
 
@@ -24,7 +24,55 @@ elif pagSelecionada == "DermAI":
     imgUploader = st.file_uploader("Envie sua imagem:", type=[".png", ".jpg", ".jpeg", ".gif"], accept_multiple_files=False)
 
     if imgUploader is not None:
-        st.warning("Parabéns, foi enviado!")
+        st.success("Imagem recebida!")
+        st.image(imgUploader, width=200)
+
+
+        ## Parte da implementação do modelo e Funcionalidade
+
+        # # Caminho do modelo utilizado
+        # MODEL_PATH = 'models/modelo_aqui.h5' # ou .keras
+
+        # width_shape = 224
+        # height_shape = 224
+
+        # # Classes do modelo
+        # names = ['classe 1', 'classe 2']
+
+        # # Receber a imagem no modelo e retornar a predição
+
+        # def model_prediction(img, model):
+
+        #     img_resize = resize(img, (width_shape, height_shape))
+        #     x = preprocess_input(img_resize * 255)
+        #     x = np.expand_dims(x, axis=0)
+
+        #     pred = model.predict(x)
+        #     return pred
+
+        # def main():
+
+        #     model = ''
+
+        #     if model == '':
+        #         model = load_model(MODEL_PATH)
+
+        #     st.title("DermAI - Identificador de Dermatoses")
+
+        #     predictS = ""
+        #     img_file_buffer = st.file_uploader("Envie sua imagem:", type=[".png", ".jpg", ".jpeg", ".gif"], accept_multiple_files=False)
+
+        #     if img_file_buffer is not None:
+        #         image = np.array(Image.open(img_file_buffer))
+        #         st.image(image, caption="Imagem", use_column_width=False)
+
+        #     if st.button("Predição"):
+        #         predictS = model_prediction(image, model)
+        #         st.success('O diagnóstico é: {}'.format(names[np.argmax(predictS)]))
+
+        # if __name__ == '__main__':
+        #     main()
+
         pass
 
 elif pagSelecionada == "About":
