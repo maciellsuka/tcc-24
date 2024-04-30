@@ -3,4 +3,4 @@
 Seja bem-vinde ao Trabalho de Conclusão de Curso do nosso grupo.
 Ficamos muito felizes com a sua visita!
 
-Clique <a href="#">aqui</a> para acessar nossa aplicação.
+Clique <a href="https://dermai.streamlit.app">aqui</a> para acessar nossa aplicação.
