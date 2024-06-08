@@ -1,20 +1,28 @@
-from tensorflow.keras.models import load_model
-from tensorflow.keras.applications.imagenet_utils import preprocess_input
-import numpy as np
-
 import streamlit as st
 from PIL import Image
-from skimage.transform import resize
+
+import argparse
+import logging
+import os
+import shutil
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+from torchvision import transforms
+
+from utils.data_loading import BasicDataset
+from unet import UNet
+from utils.utils import plot_img_and_mask
 
 # Configurações da página
 st.set_page_config(page_title="DermAI", page_icon="imgs/Ico.png")
 
 with st.sidebar:
     logo = st.image("imgs/Logo-Sidebar.png")
-    pagSelecionada = st.selectbox("Menu", ["Home", "DermAI", "About", "Contact"], help="Clique para selecionar a página")
+    pagSelecionada = st.selectbox("Menu", ["Index", "DermAI", "About", "Contact"])
 
-
-if pagSelecionada == "Home":
+if pagSelecionada == "Index":
     st.title("Seja bem-vindo!")
     st.markdown("<h3>DermAI, facilitando o seu diagnóstico!</h3>", unsafe_allow_html=True)
 
@@ -24,58 +32,175 @@ elif pagSelecionada == "DermAI":
     imgUploader = st.file_uploader("Envie sua imagem:", type=[".png", ".jpg", ".jpeg", ".gif"], accept_multiple_files=False)
 
     if imgUploader is not None:
-        st.success("Imagem recebida!")
-        st.image(imgUploader, width=200)
+
+        if os.path.exists('output'):
+            shutil.rmtree('output')
+
+        if not os.path.exists('output'):
+            os.makedirs('output')
+        # Carregar e exibir a imagem
+        image = Image.open(imgUploader)
+        st.image(image, caption='Imagem enviada', use_column_width=True)
+        
+        # Salva a imagem na pasta 'outputs'
+        image_path = os.path.join('output', imgUploader.name)
+        image.save(image_path)
+        
+        st.success(f"Imagem salva em: {image_path}")
+
+        def get_segment_crop(img, mask, cl=[0]):
+            img[~np.isin(mask, cl)] = 0
+            return img
+
+        def predict_img(net,
+                        full_img,
+                        device,
+                        image_size=(256, 256),
+                        out_threshold=0.5,
+                        out_mask_filename='mask.png'):
+            net.eval()
+            img = torch.from_numpy(BasicDataset.preprocess(None, full_img, image_size, is_mask=False))
+            img = img.unsqueeze(0)
+            img = img.to(device=device, dtype=torch.float32)
+
+            with torch.no_grad():
+                output = net(img).cpu()
+                print(f'Ouput shape: {output.shape}')
+                output = F.interpolate(output, (full_img.size[1], full_img.size[0]), mode='bilinear')
+                
+                if net.n_classes > 1:
+                    mask = output.argmax(dim=1)
+
+                    # Save all crops masks
+                    mask_filename = out_mask_filename[:out_mask_filename.rfind('.')]
+                    for cl, mask_class in enumerate(output[0]):
+                        mask_reshaped = mask.numpy().reshape((mask.shape[1], mask.shape[2]))
+                        # Crop each class
+                        full_img_cropped = get_segment_crop(np.array(full_img), mask=mask_reshaped, cl=[cl])
+                        full_img_cropped = Image.fromarray(full_img_cropped)
+                        full_img_cropped.save(f'{mask_filename}-{cl}.png')
+
+                        '''
+                        mask_class = torch.sigmoid(mask_class) > out_threshold
+
+                        # Mask without argmax (only using threshold)
+                        mask_class_without_argmax = Image.fromarray(mask_class.numpy().astype(bool))
+                        mask_class_without_argmax.save(f'{mask_filename}-{cl}-mask_without_argmax.png')
+
+                        # Mask using argmax
+                        only_mask_class = get_segment_crop(mask_class.numpy().astype(bool), mask=mask_reshaped, cl=[cl])
+                        only_mask_class = Image.fromarray(only_mask_class)
+                        only_mask_class.save(f'{mask_filename}-{cl}-mask.png')
+                        '''
+
+                    full_img_cropped = get_segment_crop(np.array(full_img), mask=mask_reshaped, cl=range(1, output.shape[1]))
+                    full_img_cropped = Image.fromarray(full_img_cropped)
+                    full_img_cropped.save(f'{mask_filename}-all_class.png')
+
+                else:
+                    mask = torch.sigmoid(output) > out_threshold
+
+            return mask[0].long().squeeze().numpy()
 
 
-        ## Parte da implementação do modelo e Funcionalidade
+        def get_args():
+            parser = argparse.ArgumentParser(description='Predict masks from input images')
+            parser.add_argument('--model', '-m', default='model/checkpoint_epoch11.pth', metavar='FILE',
+                                help='Specify the file in which the model is stored')
+            parser.add_argument('--input', '-i', metavar='INPUT', nargs='+', default=['output'],
+                                help='Filenames or folder of input images')
+            parser.add_argument('--output', '-o', metavar='OUTPUT', nargs='+', help='Filenames of output images')
+            parser.add_argument('--viz', '-v', action='store_true',
+                                help='Visualize the images as they are processed')
+            parser.add_argument('--no-save', '-n', action='store_true', help='Do not save the output masks')
+            parser.add_argument('--mask-threshold', '-t', type=float, default=0.5,
+                                help='Minimum probability value to consider a mask pixel white')
+            parser.add_argument('--image_size', '-s', type=tuple, default=(256, 256),
+                                help='Resize images')
+            parser.add_argument('--bilinear', action='store_true', default=False, help='Use bilinear upsampling')
+            parser.add_argument('--classes', '-c', type=int, default=3, help='Number of classes')
+            
+            return parser.parse_args()
 
-        # # Caminho do modelo utilizado
-        # MODEL_PATH = 'models/modelo_aqui.h5' # ou .keras
 
-        # width_shape = 224
-        # height_shape = 224
+        def get_output_filenames(args):
+            def _generate_name(fn):
+                return f'{os.path.splitext(fn)[0]}_OUT.png'
 
-        # # Classes do modelo
-        # names = ['classe 1', 'classe 2']
+            return args.output or list(map(_generate_name, args.input))
 
-        # # Receber a imagem no modelo e retornar a predição
 
-        # def model_prediction(img, model):
+        def mask_to_image(mask: np.ndarray, mask_values):
+            if isinstance(mask_values[0], list):
+                out = np.zeros((mask.shape[-2], mask.shape[-1], len(mask_values[0])), dtype=np.uint8)
+            elif mask_values == [0, 1]:
+                out = np.zeros((mask.shape[-2], mask.shape[-1]), dtype=bool)
+            else:
+                out = np.zeros((mask.shape[-2], mask.shape[-1]), dtype=np.uint8)
+                # Add a color for each class (grayscale)
+                interval_colors = 255 / (len(mask_values) - 1)
+                for idx, v in enumerate(mask_values):
+                    mask_values[idx] = int(idx * interval_colors)
 
-        #     img_resize = resize(img, (width_shape, height_shape))
-        #     x = preprocess_input(img_resize * 255)
-        #     x = np.expand_dims(x, axis=0)
+            if mask.ndim == 3:
+                mask = np.argmax(mask, axis=0)
 
-        #     pred = model.predict(x)
-        #     return pred
+            for i, v in enumerate(mask_values):
+                out[mask == i] = v
 
-        # def main():
+            return Image.fromarray(out)
 
-        #     model = ''
 
-        #     if model == '':
-        #         model = load_model(MODEL_PATH)
+        if __name__ == '__main__':
+            args = get_args()
+            logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-        #     st.title("DermAI - Identificador de Dermatoses")
+            if os.path.isdir(args.input[0]):
+                filenames = os.listdir(args.input[0])
+                in_files = []
+                for filename in filenames:
+                    in_files.append(f'{args.input[0]}/{filename}')
+                args.input = in_files
 
-        #     predictS = ""
-        #     img_file_buffer = st.file_uploader("Envie sua imagem:", type=[".png", ".jpg", ".jpeg", ".gif"], accept_multiple_files=False)
+            in_files = args.input
 
-        #     if img_file_buffer is not None:
-        #         image = np.array(Image.open(img_file_buffer))
-        #         st.image(image, caption="Imagem", use_column_width=False)
+            out_files = get_output_filenames(args)
 
-        #     if st.button("Predição"):
-        #         predictS = model_prediction(image, model)
-        #         st.success('O diagnóstico é: {}'.format(names[np.argmax(predictS)]))
+            net = UNet(n_channels=3, n_classes=args.classes, bilinear=args.bilinear)
 
-        # if __name__ == '__main__':
-        #     main()
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            logging.info(f'Loading model {args.model}')
+            logging.info(f'Using device {device}')
 
-        pass
+            net.to(device=device)
+            state_dict = torch.load(args.model, map_location=device)
+            mask_values = state_dict.pop('mask_values', [0, 1])
+            net.load_state_dict(state_dict)
 
-elif pagSelecionada == "About":
+            logging.info('Model loaded!')
+
+            for i, filename in enumerate(in_files):
+                logging.info(f'Predicting image {filename} ...')
+                img = Image.open(filename)
+
+                mask = predict_img(net=net,
+                                full_img=img,
+                                image_size=args.image_size,
+                                out_threshold=args.mask_threshold,
+                                device=device,
+                                out_mask_filename=out_files[i])
+
+                if not args.no_save:
+                    out_filename = out_files[i]
+                    result = mask_to_image(mask, mask_values)
+                    result.save(out_filename)
+                    logging.info(f'Mask saved to {out_filename}')
+
+                if args.viz:
+                    logging.info(f'Visualizing results for image {filename}, close to continue...')
+                    plot_img_and_mask(img, mask)
+        
+elif pagSelecionada == "About": 
 
     st.title("O que é o DermAI?")
 
@@ -131,5 +256,3 @@ elif pagSelecionada == "Contact":
         st.image("imgs/lucas-tcc.jpg", width=200, clamp=True)
         st.write("Lucas Marinelli Maciel")
         st.write("lmmaciel@dermai.com")
-
-
